@@ -6,7 +6,11 @@ from pathlib import Path
 from sklearn.metrics import mean_squared_error, r2_score
 import numpy as np
 
+
 st.set_page_config(page_title="Resilience Explorer", layout="wide")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 def local_css(file_name):
     css_path = Path(__file__).parent / file_name
     with open(css_path) as f:
@@ -16,10 +20,7 @@ local_css("styles/space_theme.css")
 
 
 
-
-
 def set_space_theme():
-    # Sun on the left
     st.markdown(
         """
         <div class="sun-container" style="margin-top:40px;">
@@ -31,7 +32,8 @@ def set_space_theme():
         unsafe_allow_html=True
     )
 
-    # Earth on the right
+
+    # put in pic of earth
     st.markdown(
         """
         <div class="planet-container">
@@ -43,14 +45,18 @@ def set_space_theme():
         unsafe_allow_html=True
     )
 
+
 set_space_theme()
+
 
 st.title("🛰️ Industry Resilience Explorer")
 
-METRICS_CSV = Path("data/processed/resilience_metrics.csv")
-FEATURES_CSV = Path("data/processed/clean_va_price.csv")
-MODEL_PKL   = Path("models/ridge_model.pkl")
-SCALER_PKL  = Path("models/scaler.pkl")
+
+METRICS_CSV = PROJECT_ROOT / "data/processed/resilience_metrics.csv"
+FEATURES_CSV = PROJECT_ROOT / "data/processed/clean_va_price.csv"
+MODEL_PKL   = PROJECT_ROOT / "models/ridge_model.pkl"
+SCALER_PKL  = PROJECT_ROOT / "models/scaler.pkl"
+
 
 def build_ml_frame() -> pd.DataFrame:
     if not (FEATURES_CSV.exists() and METRICS_CSV.exists()):
@@ -87,12 +93,14 @@ def build_ml_frame() -> pd.DataFrame:
     df = df.dropna(subset=["GrowthRate", "Volatility", "Baseline", "Recovered_Years"])
     return df
 
+
 def safe_predict_matrix(ridge, scaler, X: pd.DataFrame) -> np.ndarray:
     X = X.replace([np.inf, -np.inf], np.nan).dropna()
     if X.empty:
         return np.array([])
     X_scaled = scaler.transform(X.values)
     return ridge.predict(X_scaled)
+
 
 if METRICS_CSV.exists():
     df_metrics = pd.read_csv(METRICS_CSV)
@@ -108,10 +116,11 @@ if METRICS_CSV.exists():
         "🤖 Model Predictions",
         "🔮 Shock Simulator"
     ])
-
+#tab 1 shows resilence in table and bar chart and table 10 worst industries
     with tab1:
         st.subheader("📊 Resilience Metrics (Full Dataset)")
         st.dataframe(df_metrics)
+
 
         st.subheader("📉 Worst-Hit Industries (2020)")
         worst = df_metrics.sort_values("Drawdown_2020").head(15)
@@ -123,6 +132,7 @@ if METRICS_CSV.exists():
         )
         st.altair_chart(bar_chart, use_container_width=True)
 
+
         st.subheader("⏳ Recovery Speed by Industry")
         heatmap = alt.Chart(df_metrics.dropna(subset=["Recovered_Years"])).mark_rect().encode(
             x=alt.X("Recovered_Years:O", title="Years to Recover"),
@@ -132,6 +142,7 @@ if METRICS_CSV.exists():
         )
         st.altair_chart(heatmap, use_container_width=True)
 
+
         st.subheader("🏆 Top 10 Resilient Industries")
         top_resilient = (
             df_metrics.dropna(subset=["Resilience_Score"])
@@ -139,6 +150,7 @@ if METRICS_CSV.exists():
             .head(10)
         )
         st.table(top_resilient[["Industry", "Drawdown_2020", "Recovered_Years", "Resilience_Score"]])
+
 
         if df_metrics["Resilience_Score"].notna().any():
             df_metrics["Resilience_Score"] = df_metrics["Resilience_Score"].replace([float("inf"), float("-inf")], np.nan)
@@ -155,24 +167,28 @@ if METRICS_CSV.exists():
             st.subheader(f"📌 Industries with Resilience Score ≥ {score_threshold}")
             st.dataframe(filtered_df[["Industry", "Drawdown_2020", "Recovered_Years", "Resilience_Score"]])
 
-    # ---------------- TAB 2 ----------------
+
+    # second tab with sliders and predictions
     with tab2:
         st.subheader("🤖 Ridge Regression Model Predictions")
         if MODEL_PKL.exists() and SCALER_PKL.exists():
             ridge  = joblib.load(MODEL_PKL)
             scaler = joblib.load(SCALER_PKL)
 
-            # 🎛️ Sliders for custom scenario
+
+            #Sliders
             st.write("🎛️ Test a new scenario:")
             g = st.slider("Growth Rate", -0.5, 0.5, 0.0, step=0.01)
             v = st.slider("Volatility", 0.0, 1.0, 0.1, step=0.01)
             b = st.slider("Baseline (normalized/level)", 0.0, 1.0, 0.5, step=0.01)
+
 
             X_input = np.array([[g, v, b, g * v]], dtype=np.float64)
             X_input = np.nan_to_num(X_input, nan=0.0, posinf=0.0, neginf=0.0)
             X_input = scaler.transform(X_input)
             pred = ridge.predict(X_input)[0]
             st.success(f"📌 Predicted recovery years: {pred:.2f}")
+
 
             ml_df = build_ml_frame()
             if not ml_df.empty:
@@ -185,35 +201,39 @@ if METRICS_CSV.exists():
                 X_scaled = scaler.transform(X_all.values)
                 y_pred_all = ridge.predict(X_scaled)
 
+
                 mse = mean_squared_error(y_all, y_pred_all)
                 r2  = r2_score(y_all, y_pred_all)
                 st.subheader("📊 Model Evaluation")
                 st.write(f"**MSE:** {mse:.4f}")
                 st.write(f"**R² Score:** {r2:.4f}")
 
-                # ✅ Build dataframe for scatter
+
+                #data with industrys name and recovery years
                 chart_data = pd.DataFrame({
                     "Industry": ml_df.loc[mask, "Industry"],
                     "Actual": y_all,
                     "Predicted": y_pred_all
                 })
 
-                # Base scatter
+
+                # scatter plot
                 scatter = alt.Chart(chart_data).mark_circle(size=80).encode(
                     x="Actual:Q",
                     y="Predicted:Q",
                     tooltip=["Industry", "Actual", "Predicted"]
                 ).properties(width=600, height=400)
 
-                # Reference line y=x
+
                 line = alt.Chart(chart_data).mark_line(color="red").encode(
                     x="Actual:Q", y="Actual:Q"
                 )
 
-                # 🎯 Add scenario point
+
+                #Add scenario
                 scenario_dot = alt.Chart(pd.DataFrame({
                     "Industry": ["Scenario Input"],
-                    "Actual": [np.nan],  # no actual value
+                    "Actual": [np.nan],  
                     "Predicted": [pred]
                 })).mark_point(size=200, color="orange", shape="diamond").encode(
                     x="Actual:Q",
@@ -221,13 +241,15 @@ if METRICS_CSV.exists():
                     tooltip=["Industry", "Predicted"]
                 )
 
+
                 st.altair_chart(scatter + line + scenario_dot, use_container_width=True)
             else:
                 st.warning("Could not build ML frame (missing Year/values).")
         else:
             st.warning("⚠️ No trained model yet. Run notebooks/model_dev.ipynb and save ridge_model.pkl + scaler.pkl.")
 
-    # ---------------- TAB 3 ----------------
+
+    #third tab
     with tab3:
         st.subheader("🔮 Shock Simulator (table view)")
         if MODEL_PKL.exists() and SCALER_PKL.exists():
@@ -240,8 +262,10 @@ if METRICS_CSV.exists():
                 years_full = list(range(2012, 2041))
                 sel_year = st.selectbox("Select Year (2012–2040)", years_full, index=years_full.index(2040))
 
-                # shock slider updated: -2.0 to 0.0
+
+                # shock slider
                 shock = st.slider("Apply shock to GrowthRate (negative values)", -2.0, 0.0, -0.20, 0.01)
+
 
                 rows = []
                 for _, g in ml_df.groupby("Industry"):
@@ -257,10 +281,12 @@ if METRICS_CSV.exists():
                     rows.append(row)
                 picked = pd.DataFrame(rows).reset_index(drop=True)
 
+
                 picked["GrowthRate_sim"] = picked["GrowthRate"] + shock
                 picked["Volatility_sim"] = picked["Volatility"]
                 picked["Baseline_sim"]   = picked["Baseline"]
                 picked["GXV_sim"]        = picked["GrowthRate_sim"] * picked["Volatility_sim"]
+
 
                 X_sim = picked[["GrowthRate_sim","Volatility_sim","Baseline_sim","GXV_sim"]].replace([np.inf,-np.inf], np.nan).dropna()
                 if X_sim.empty:
@@ -278,6 +304,7 @@ if METRICS_CSV.exists():
                     st.dataframe(out.sort_values("Pred_Recovery_Years"))
         else:
             st.warning("⚠️ No trained model yet. Run notebooks/model_dev.ipynb and save ridge_model.pkl + scaler.pkl.")
+
 
 else:
     st.warning("⚠️ No metrics yet. Run resilience.py first to generate them.")

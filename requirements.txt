@@ -1,8 +1,6 @@
+streamlit
 pandas
 numpy
+altair
+joblib
 scikit-learn
-statsmodels
-plotly
-streamlit
-fastapi
-uvicorn
